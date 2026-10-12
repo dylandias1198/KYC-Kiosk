@@ -1,0 +1,738 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>KYC Match Kiosk</title><link rel="stylesheet" href="{{ url_for('static', filename='style.css', v='v1.4.25-checkbox-document-slots') }}">
+</head>
+<body>
+<header class="topbar"><div class="brand"><span class="brand-mark">P</span><span>PayU <strong>Finance</strong></span></div><div class="header-title">KYC Match Kiosk</div><div class="header-pill">LOCAL PROTOTYPE</div></header>
+<div class="shell">
+  <aside class="sidebar">
+    <form class="upload" action="{{ url_for('upload') }}" method="post" enctype="multipart/form-data">
+      <label class="upload-label" for="file">LOAD WORKBOOK</label><input id="file" name="file" type="file" accept=".xlsx" required><button type="submit">Upload &amp; Match</button>
+    </form>
+    <div class="sidebar-heading"><span>USER LIST</span><span class="count">{{ user_rows|length }}</span></div>
+    <input id="userSearch" class="search" type="search" placeholder="Search user ID or name" aria-label="Search user ID or name">
+    <div class="record-note">{{ user_rows|length }} records loaded{% if filename %}<br><small>{{ filename }}</small>{% endif %}</div>
+    <div id="userList" class="user-list" tabindex="0" aria-label="User list">
+      {% for row in user_rows %}<button class="user-row{% if loop.first %} selected{% endif %}" data-index="{{ row.index }}" data-user-id="{{ row.user_id }}" data-user-name="{{ row.user_name }}" data-status="{{ row.mitc_extraction_status }}" title="MITC: {{ row.mitc_extraction_status }}" type="button"><span class="status-dot"></span><span class="user-row-copy"><span class="user-row-id">{{ row.user_id }}</span>{% if row.user_name %}<small>{{ row.user_name }}</small>{% endif %}</span></button>{% endfor %}
+      {% if not user_rows %}<div class="empty">Upload an Excel workbook to begin.</div>{% endif %}
+    </div>
+  </aside>
+  <main class="main">
+    {% with messages = get_flashed_messages(with_categories=true) %}{% if messages %}<div class="alerts">{% for category, message in messages %}<div class="alert {{ category }}">{{ message }}</div>{% endfor %}</div>{% endif %}{% endwith %}
+    <section class="hero"><div><div class="eyebrow">MATCHING WORKSPACE</div><h1>KYC verification desk</h1><p>Review user and KYC records side by side after deterministic matching.</p></div>{% if user_rows %}<div class="complete" id="mitcProgressCard"><span class="check">✓</span><div class="complete-copy"><b>Matching complete</b><small>{{ user_rows|length }} users ready for review</small></div><div class="mitc-progress" aria-live="polite"><div class="mitc-progress-heading"><b id="mitcProgressLabel">MITC extracted {{ mitc_summary.extracted }} / {{ mitc_summary.eligible }} eligible</b><span id="mitcProgressPercent">{{ mitc_summary.progress_percent }}%</span></div><div class="mitc-progress-track" role="progressbar" aria-label="MITC extraction progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="{{ mitc_summary.progress_percent }}"><span id="mitcProgressBar" style="width: {{ mitc_summary.progress_percent }}%"></span></div><div class="mitc-metrics"><span>Total <strong data-metric="total_records">{{ mitc_summary.total_records }}</strong></span><span>Eligible <strong data-metric="eligible">{{ mitc_summary.eligible }}</strong></span><span>Success <strong data-metric="success">{{ mitc_summary.success }}</strong></span><span>Partial <strong data-metric="parsed_with_missing_fields">{{ mitc_summary.parsed_with_missing_fields }}</strong></span><span>Failed <strong data-metric="failed">{{ mitc_summary.failed }}</strong></span><span>No link <strong data-metric="no_link">{{ mitc_summary.no_link }}</strong></span><span>Queued <strong data-metric="queued">{{ mitc_summary.queued }}</strong></span><span>In progress <strong data-metric="extracting">{{ mitc_summary.extracting }}</strong></span></div><div class="mitc-metrics"><span>Sanction Letter eligible <strong id="sanctionEligible">0</strong></span><span>Completed <strong id="sanctionCompleted">0</strong></span><span>Queued / extracting <strong id="sanctionPending">0</strong></span><span>Failed <strong id="sanctionFailed">0</strong></span></div></div>{% if user_rows %}<a class="download" href="{{ url_for('download') }}">Download workbook</a>{% endif %}</div>{% endif %}</section>
+    <nav class="tabs" role="tablist">{% for tab in ['User Details', 'KYC Details', 'Form', 'All Documents', 'Summary'] %}<button class="tab{% if loop.first %} active{% endif %}" type="button" role="tab" aria-selected="{{ 'true' if loop.first else 'false' }}" data-tab="{{ tab|replace(' ', '-')|lower }}">{{ tab }}</button>{% endfor %}</nav>
+    <section class="content-card">
+      <div class="selected-heading"><div><span class="eyebrow">SELECTED USER</span><h2 id="selectedUser">{{ user_rows[0].user_id if user_rows else 'No user selected' }}</h2></div><div class="nav-hint">Use <kbd>↑</kbd> <kbd>↓</kbd> to navigate</div></div>
+      <div id="tabContent" class="tab-content">
+        {% if user_rows %}<div class="placeholder"><h3>User Details</h3><p>Select a user to view source details.</p></div>{% else %}<div class="placeholder"><div class="placeholder-icon">↑</div><h3>Upload a workbook to start</h3><p>The review sections will appear here after matching.</p></div>{% endif %}
+      </div>
+    </section>
+  </main>
+</div>
+<div id="photoZoomModal" class="photo-zoom-modal" role="dialog" aria-modal="true" aria-label="Photo zoom" aria-hidden="true" hidden>
+  <div class="photo-zoom-dialog" role="document">
+    <div class="photo-zoom-toolbar">
+      <span class="photo-zoom-title">Photo preview</span>
+      <div class="photo-zoom-actions" aria-label="Photo zoom controls">
+        <button type="button" data-photo-zoom-action="out" aria-label="Zoom out" title="Zoom out">−</button>
+        <button type="button" data-photo-zoom-action="in" aria-label="Zoom in" title="Zoom in">+</button>
+        <button type="button" data-photo-zoom-action="fit" aria-label="Reset photo to fit" title="Reset / fit">Fit</button>
+        <button type="button" data-photo-zoom-action="close" class="photo-zoom-close" aria-label="Close photo preview" title="Close photo preview">×</button>
+      </div>
+    </div>
+    <div class="photo-zoom-stage"><img class="photo-zoom-image" alt="Enlarged selected selfie" referrerpolicy="no-referrer"><p class="photo-zoom-error" hidden>Image could not be loaded by the browser.</p></div>
+  </div>
+</div>
+<script src="{{ url_for('static', filename='pdf-viewer.js') }}"></script>
+<script src="{{ url_for('static', filename='kfs-form.js') }}"></script>
+<script src="{{ url_for('static', filename='info-row-documents.js', v='v1.4.25-checkbox-document-slots') }}"></script>
+<script>
+const userRows = {{ user_rows|tojson }};
+const userIds = userRows.map(row => String(row.user_id || ''));
+const recordCache = new Map();
+const recordRequests = new Map();
+const rowStatuses = userRows.map(row => String(row.mitc_extraction_status || ''));
+const sanctionRowStatuses = userRows.map(row => String(row.sanction_validation_status || ''));
+const applicationRowStatuses = userRows.map(row => String(row.application_validation_status || ''));
+const kfsRowStatuses = userRows.map(row => String(row.kfs_validation_status || ''));
+const gtcRowStatuses = userRows.map(row => String(row.gtc_status || ''));
+let mitcSummary = {{ mitc_summary|tojson }};
+let selectedIndex = userIds.length ? 0 : -1;
+const labels = {'user-details':'User Details','kyc-details':'KYC Details','form':'Form','all-documents':'All Documents','summary':'Summary'};
+const MITC_PREVIEW_PAGE = 23;
+const legacyMitcPageFragment = '#page=${MITC_PREVIEW_PAGE}';
+let currentFormType = 'MITC';
+let currentMitcProfile = 'LP';
+const mitcProfileStates = {LP: 'LP profile active', FPL: 'FPL MITC profile not implemented yet', MPL: 'MPL MITC profile not implemented yet'};
+
+function escapeHtml(value) { const div = document.createElement('div'); div.textContent = value == null ? '' : String(value); return div.innerHTML.replaceAll('\"', '&quot;').replaceAll("'", '&#39;'); }
+function selectedRecord() { return selectedIndex >= 0 ? (recordCache.get(selectedIndex) || {}) : {}; }
+async function fetchRecord(index, force = false) {
+  if (index < 0 || index >= userRows.length) throw new Error('Selected user is out of range.');
+  if (!force && recordCache.has(index)) return recordCache.get(index);
+  if (!force && recordRequests.has(index)) return recordRequests.get(index);
+  const pending = (async () => {
+    const response = await fetch(`/api/records/${index}`, {headers: {'Accept': 'application/json'}});
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || `Record HTTP ${response.status}`);
+    recordCache.set(index, payload.record);
+    return payload.record;
+  })();
+  if (!force) recordRequests.set(index, pending);
+  try { return await pending; }
+  finally { if (recordRequests.get(index) === pending) recordRequests.delete(index); }
+}
+let selectedListRow = null;
+let selectionRequestId = 0;
+async function selectUser(index) {
+  if (!userIds.length) return;
+  selectedIndex = Math.max(0, Math.min(index, userIds.length - 1));
+  const requestId = ++selectionRequestId;
+  if (selectedListRow) selectedListRow.classList.remove('selected');
+  selectedListRow = document.querySelector(`.user-row[data-index="${selectedIndex}"]`);
+  selectedListRow?.classList.add('selected');
+  document.getElementById('selectedUser').textContent = userIds[selectedIndex];
+  selectedListRow?.scrollIntoView({block:'nearest'});
+  const active = document.querySelector('.tab.active');
+  if (active?.dataset.tab === 'user-details' || active?.dataset.tab === 'form' || active?.dataset.tab === 'kyc-details' || active?.dataset.tab === 'all-documents' || active?.dataset.tab === 'summary') renderTab(active.dataset.tab);
+  try {
+    await fetchRecord(selectedIndex);
+    if (requestId === selectionRequestId && active?.dataset.tab === 'kyc-details') renderTab(active.dataset.tab);
+    else if (requestId === selectionRequestId && active?.dataset.tab === 'user-details') renderTab(active.dataset.tab);
+    else if (requestId === selectionRequestId && active?.dataset.tab === 'form') renderTab(active.dataset.tab);
+    else if (requestId === selectionRequestId && active?.dataset.tab === 'all-documents') renderTab(active.dataset.tab);
+  } catch (error) {
+    if (requestId === selectionRequestId && ['form', 'kyc-details', 'user-details'].includes(active?.dataset.tab)) {
+      document.getElementById('tabContent').innerHTML = `<div class="placeholder"><h3>Record unavailable</h3><p>${escapeHtml(error.message)}</p></div>`;
+    }
+  }
+}
+function hasSuppliedValue(value) { return value !== null && value !== undefined && !['', 'nan', 'nat', 'none', 'null', 'n/a', 'na'].includes(String(value).trim().toLowerCase()); }
+function userDetailValue(value) { return hasSuppliedValue(value) ? String(value) : 'Not supplied'; }
+function metadataDateOnly(value) {
+  if (!hasSuppliedValue(value)) return value;
+  const text = String(value).trim();
+  // Pandas serializes workbook datetimes to ISO timestamps in the API.
+  if (/^(\d{4}-\d{2}-\d{2})T/.test(text)) return text.slice(0, 10);
+  if (/^(\d{4}-\d{2}-\d{2})[ T]/.test(text)) return text.slice(0, 10);
+  // Preserve a human-readable source date while dropping a trailing time.
+  if (/^[A-Za-z]+ \d{1,2}, \d{4}, \d{1,2}:\d{2}/.test(text)) return text.replace(/, \d{1,2}:\d{2}(?::\d{2})?(?: [AP]M)?$/, '');
+  return text;
+}
+function safeHttpUrl(value) {
+  if (!hasSuppliedValue(value)) return '';
+  try {
+    const parsed = new URL(String(value));
+    return ['http:', 'https:'].includes(parsed.protocol) && !parsed.username && !parsed.password ? String(value) : '';
+  } catch (_) { return ''; }
+}
+let photoZoomScale = 1;
+let photoZoomOpener = null;
+const photoZoomModal = document.getElementById('photoZoomModal');
+const photoZoomImage = photoZoomModal?.querySelector('.photo-zoom-image');
+const photoZoomError = photoZoomModal?.querySelector('.photo-zoom-error');
+function setPhotoZoomScale(nextScale) {
+  photoZoomScale = Math.max(0.5, Math.min(4, nextScale));
+  if (photoZoomImage) photoZoomImage.style.transform = `scale(${photoZoomScale})`;
+}
+function openPhotoZoom(trigger) {
+  const card = trigger.closest('.user-photo-card, .kyc-photo-card, .kyc-document-card');
+  const source = trigger.tagName === 'IMG' ? trigger : card?.querySelector('.user-photo, .kyc-photo, .kyc-document-image, .all-document-image');
+  const rawSource = source?.currentSrc || source?.src || '';
+  const safeHttpSource = safeHttpUrl(source?.currentSrc || source?.src || '');
+  let safeSource = safeHttpSource;
+  if (!safeSource && String(rawSource).startsWith('blob:')) { try { const local = new URL(rawSource); if (local.origin === window.location.origin) safeSource = rawSource; } catch (_) {} }
+  if (!safeSource || !photoZoomModal || !photoZoomImage) return;
+  photoZoomOpener = trigger;
+  photoZoomImage.hidden = false;
+  if (photoZoomError) photoZoomError.hidden = true;
+  photoZoomImage.src = safeSource;
+  setPhotoZoomScale(1);
+  photoZoomModal.hidden = false;
+  photoZoomModal.setAttribute('aria-hidden', 'false');
+  photoZoomModal.querySelector('[data-photo-zoom-action="close"]')?.focus();
+}
+function closePhotoZoom() {
+  if (!photoZoomModal) return;
+  photoZoomModal.hidden = true;
+  photoZoomModal.setAttribute('aria-hidden', 'true');
+  if (photoZoomImage) { photoZoomImage.removeAttribute('src'); photoZoomImage.style.transform = ''; photoZoomImage.hidden = false; }
+  if (photoZoomError) photoZoomError.hidden = true;
+  photoZoomScale = 1;
+  if (photoZoomOpener?.isConnected) photoZoomOpener.focus();
+  photoZoomOpener = null;
+}
+// One delegated listener supports lazy rerenders and either selfie card without duplicate bindings.
+document.addEventListener('click', event => {
+  const zoomTrigger = event.target.closest('[data-photo-zoom]');
+  if (zoomTrigger) { openPhotoZoom(zoomTrigger); return; }
+  const action = event.target.closest('[data-photo-zoom-action]');
+  if (action && photoZoomModal && !photoZoomModal.hidden) {
+    if (action.dataset.photoZoomAction === 'in') setPhotoZoomScale(photoZoomScale + 0.25);
+    else if (action.dataset.photoZoomAction === 'out') setPhotoZoomScale(photoZoomScale - 0.25);
+    else if (action.dataset.photoZoomAction === 'fit') setPhotoZoomScale(1);
+    else if (action.dataset.photoZoomAction === 'close') closePhotoZoom();
+    return;
+  }
+  if (event.target === photoZoomModal) closePhotoZoom();
+});
+document.addEventListener('keydown', event => {
+  if (!photoZoomModal || photoZoomModal.hidden) return;
+  if (event.key === 'Escape') { event.preventDefault(); closePhotoZoom(); return; }
+  if (event.key === 'Tab') {
+    const controls = [...photoZoomModal.querySelectorAll('button:not([disabled])')];
+    const first = controls[0], last = controls[controls.length - 1];
+    if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+    else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+  }
+});
+document.addEventListener('wheel', event => {
+  if (!photoZoomModal || photoZoomModal.hidden || !event.target.closest('.photo-zoom-dialog')) return;
+  event.preventDefault();
+  setPhotoZoomScale(photoZoomScale + (event.deltaY < 0 ? 0.1 : -0.1));
+}, {passive: false});
+photoZoomImage?.addEventListener('error', () => {
+  if (!photoZoomModal?.hidden) { photoZoomImage.hidden = true; if (photoZoomError) photoZoomError.hidden = false; }
+});
+
+function userDetailCard(label, value, key, address = false, matchStatus = '') {
+  const cardClass = address ? 'user-detail-card address-card tinted-address-card' : 'user-detail-card';
+  const badge = matchStatus === 'Match' ? '<span class="address-match-badge">Match</span>' : '';
+  const displayValue = ['mitc_date_latest', 'nsdl_date'].includes(key) ? metadataDateOnly(value) : value;
+  return `<div class="${cardClass}" data-user-field="${escapeHtml(key)}"><div class="detail-card-heading"><dt>${escapeHtml(label)}</dt>${badge}</div><dd>${escapeHtml(userDetailValue(displayValue))}</dd><small class="source-label">Source: ${escapeHtml(key)}</small></div>`;
+}
+function statusChip(label, value) {
+  return hasSuppliedValue(value) ? `<span class="identity-chip"><b>${escapeHtml(label)}</b>${escapeHtml(value)}</span>` : '';
+}
+function selectedUserHero(r, section) {
+  const name = userDetailValue(r.user_name);
+  const initials = hasSuppliedValue(r.user_name)
+    ? String(r.user_name).trim().split(/\s+/).filter(Boolean).slice(0, 2).map(part => part.charAt(0)).join('').toUpperCase()
+    : '—';
+  const userId = userDetailValue(r.user_id || userIds[selectedIndex]);
+  const chips = section === 'user'
+    ? [statusChip('KYC', r.kyc_status), statusChip('APV', r.verification_status), statusChip('MITC', r.mitc_type)].join('')
+    : [statusChip('TYPE', r.kyc_status_type), statusChip('MODE', r.kyc_mode), statusChip('STATUS', r.kyc_status)].join('');
+  let outcome = '';
+  if (section === 'kyc') {
+    const comparisonStatuses = [r.name_match_status, r.dob_match_status, r.gender_match,
+      r.permanent_address_match_status, r.current_address_match_status];
+    const allMatch = comparisonStatuses.every(value => hasSuppliedValue(value) && String(value) === 'Match');
+    outcome = `<span class="identity-chip outcome-chip ${allMatch ? 'outcome-pass' : 'outcome-review'}">${allMatch ? 'ALL MATCHES' : 'REVIEW'}</span>`;
+  }
+  return `<section class="selected-user-hero" aria-label="Selected ${section === 'user' ? 'user' : 'KYC'} record"><div class="hero-avatar" aria-hidden="true">${escapeHtml(initials)}</div><div class="selected-hero-copy"><span class="hero-kicker">${section === 'user' ? 'USER PROFILE' : 'KYC REVIEW'}</span><h2>${escapeHtml(name)}</h2><p>User ID · ${escapeHtml(userId)}</p><div class="identity-chips">${chips}${outcome}</div></div><div class="hero-navigation"><span>Use <kbd>↑</kbd> <kbd>↓</kbd> to navigate</span><b>User ${selectedIndex + 1} of ${userIds.length}</b></div></section>`;
+}
+function sectionHeading(title, note = '') {
+  return `<div class="detail-section-heading"><h3>${escapeHtml(title)}</h3>${note ? `<span>${escapeHtml(note)}</span>` : ''}</div>`;
+}
+function reviewSection(scope, validatedKey, commentsKey) {
+  const r = selectedRecord();
+  const checked = value => value === true || String(value).trim().toLowerCase() === 'true';
+  const sectionId = `${scope}-operations-review`;
+  return `<section class="operations-review" id="${sectionId}" aria-label="${escapeHtml(scope.replaceAll('-', ' '))} operations review">
+    <div class="review-heading"><div><span class="eyebrow">OPERATIONS REVIEW</span><h3>Review and comments</h3></div><span class="review-save-state" data-review-save-state aria-live="polite">Changes save automatically</span></div>
+    <label class="review-check-row" for="${scope}-validated"><input id="${scope}-validated" type="checkbox" data-review-field="${validatedKey}" ${checked(r[validatedKey]) ? 'checked' : ''}><span>Validated by operations</span></label>
+    <label class="review-comments-label" for="${scope}-comments">Review comments</label>
+    <textarea id="${scope}-comments" data-review-field="${commentsKey}" maxlength="10000" rows="4" placeholder="Paste review comments here">${escapeHtml(r[commentsKey] || '')}</textarea>
+  </section>`;
+}
+function queueReviewUpdate(field, value) {
+  if (selectedIndex < 0) return;
+  const index = selectedIndex;
+  const record = recordCache.get(index) || {};
+  record[field] = value;
+  recordCache.set(index, record);
+  if (!pendingReviewUpdates.has(index)) pendingReviewUpdates.set(index, {});
+  pendingReviewUpdates.get(index)[field] = value;
+  const notice = document.querySelector('[data-review-save-state]');
+  if (notice) { notice.textContent = 'Saving…'; notice.dataset.state = 'saving'; }
+  const prior = reviewSaveTimers.get(index);
+  if (prior) clearTimeout(prior);
+  reviewSaveTimers.set(index, setTimeout(() => flushReviewUpdates(index), 350));
+}
+async function flushReviewUpdates(index) {
+  reviewSaveTimers.delete(index);
+  const updates = pendingReviewUpdates.get(index);
+  if (!updates || !Object.keys(updates).length) return;
+  const batch = {...updates};
+  pendingReviewUpdates.set(index, {});
+  try {
+    const response = await fetch(`/api/records/${index}/review`, {method:'PATCH', headers:{'Content-Type':'application/json','Accept':'application/json'}, body:JSON.stringify(batch)});
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || `Review save HTTP ${response.status}`);
+    const record = recordCache.get(index) || {};
+    const newer = pendingReviewUpdates.get(index) || {};
+    for (const [field, value] of Object.entries(payload.review || {})) if (!(field in newer)) record[field] = value;
+    recordCache.set(index, record);
+    if (index === selectedIndex) {
+      const notice = document.querySelector('[data-review-save-state]');
+      if (notice && !Object.keys(newer).length) { notice.textContent = 'All review changes saved'; notice.dataset.state = 'saved'; }
+    }
+  } catch (error) {
+    const notice = index === selectedIndex ? document.querySelector('[data-review-save-state]') : null;
+    if (notice) { notice.textContent = `Save failed: ${error.message}`; notice.dataset.state = 'error'; }
+    if (!pendingReviewUpdates.has(index)) pendingReviewUpdates.set(index, {});
+    const latest = pendingReviewUpdates.get(index);
+    for (const [field, value] of Object.entries(batch)) if (!(field in latest)) latest[field] = value;
+    return;
+  }
+  if (Object.keys(pendingReviewUpdates.get(index) || {}).length) {
+    reviewSaveTimers.set(index, setTimeout(() => flushReviewUpdates(index), 0));
+  }
+}
+const pendingReviewUpdates = new Map();
+const reviewSaveTimers = new Map();
+document.addEventListener('change', event => {
+  const control = event.target.closest('[data-review-field]');
+  if (control && control.type === 'checkbox') queueReviewUpdate(control.dataset.reviewField, control.checked);
+});
+document.addEventListener('input', event => {
+  const control = event.target.closest('textarea[data-review-field]');
+  if (control) queueReviewUpdate(control.dataset.reviewField, control.value);
+});
+
+function renderUserDetails() {
+  const r = selectedRecord();
+  const photoUrl = safeHttpUrl(r.user_selfie);
+  const photo = photoUrl
+    ? `<div class="user-photo-card"><h3>User Photo</h3><img class="user-photo" src="${escapeHtml(photoUrl)}" alt="Selected user's photo" loading="lazy" referrerpolicy="no-referrer" onerror="this.hidden=true; this.nextElementSibling.hidden=false; this.closest('.user-photo-card')?.querySelector('[data-photo-zoom]')?.remove()"><span class="user-photo-error" hidden>Image could not be loaded by the browser.</span><button type="button" class="photo-zoom-button" data-photo-zoom aria-label="Zoom photo: selected user's photo">Zoom photo</button><a href="${escapeHtml(photoUrl)}" target="_blank" rel="noopener noreferrer">Open image</a></div>`
+    : `<div class="user-photo-card"><h3>User Photo</h3><p class="user-photo-empty">${hasSuppliedValue(r.user_selfie) ? 'Supplied selfie link is not a valid HTTP(S) URL.' : 'No user selfie supplied'}</p></div>`;
+  return `<div class="record-detail-view user-details-page">${selectedUserHero(r, 'user')}
+    <section class="detail-section" aria-label="Personal information">${sectionHeading('PERSONAL INFORMATION')}
+      <div class="personal-information-grid"><dl class="user-personal-cards">${userDetailCard('Name', r.user_name, 'user_name')}${userDetailCard('Mobile', r.primary_mobile, 'primary_mobile')}${userDetailCard('Date of Birth', r.user_dob, 'user_dob')}</dl>${photo}</div>
+    </section>
+    <section class="detail-section" aria-label="Address information">${sectionHeading('ADDRESS INFORMATION')}
+      <dl class="address-information-grid">${userDetailCard('Permanent Address', r.user_perm_address, 'user_perm_address', true, r.permanent_address_match_status)}${userDetailCard('Current Address', r.user_curr_address, 'user_curr_address', true, r.current_address_match_status)}</dl>
+    </section>
+    <section class="detail-section" aria-label="Application metadata">${sectionHeading('APPLICATION METADATA')}
+      <dl class="metadata-grid">${userDetailCard('MITC Type', r.mitc_type, 'mitc_type')}${userDetailCard('MITC Date', metadataDateOnly(r.mitc_date_latest), 'mitc_date_latest')}${userDetailCard('NSDL Pull Date', metadataDateOnly(r.nsdl_date), 'nsdl_date')}${userDetailCard('APV Status', r.verification_status, 'verification_status')}</dl>
+    </section>
+    ${reviewSection('user-details', 'user_details_validated', 'user_details_comments')}
+  </div>`;
+}
+function kycSourceCard(label, value, key, address = false) {
+  const cardClass = address ? 'kyc-source-card address-card' : 'kyc-source-card';
+  return `<div class="${cardClass}" data-kyc-source="${escapeHtml(key)}"><dt>${escapeHtml(label)}</dt><dd>${escapeHtml(userDetailValue(value))}</dd><small class="source-label">Source: ${escapeHtml(key)}</small></div>`;
+}
+function kycSelfieCard(label, value, key, altText, missingText, documentType = '') {
+  const url = safeHttpUrl(value);
+  const shownType = documentType || (key === 'kyc_selfie_link' ? '' : '');
+  const typeBadge = key === 'kyc_selfie_link' && hasSuppliedValue(shownType) ? `<span class="source-type-badge">${escapeHtml(String(shownType).trim().replace(/\.0+$/, '').replaceAll('_', ' '))}</span>` : '';
+  const image = url
+    ? `<img class="kyc-photo" src="${escapeHtml(url)}" alt="${escapeHtml(altText)}" loading="lazy" referrerpolicy="no-referrer" onerror="this.hidden=true; this.nextElementSibling.hidden=false; this.closest('.kyc-photo-card')?.querySelector('[data-photo-zoom]')?.remove()"><span class="kyc-photo-error" hidden>Image could not be loaded by the browser.</span><button type="button" class="photo-zoom-button" data-photo-zoom aria-label="Zoom photo: ${escapeHtml(label)}">Zoom photo</button><a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">Open image</a>`
+    : `<p class="kyc-photo-empty">${hasSuppliedValue(value) ? 'Supplied selfie link is not a valid HTTP(S) URL.' : escapeHtml(missingText)}</p>`;
+  return `<section class="kyc-photo-card" data-kyc-source="${escapeHtml(key)}"><div class="photo-card-heading"><h4>${escapeHtml(label)}</h4>${typeBadge}</div>${image}</section>`;
+}
+function comparisonBadge(status) {
+  if (hasSuppliedValue(status) && String(status) === 'Match') return {label: 'Match', css: 'match'};
+  if (hasSuppliedValue(status) && String(status) === 'Not a Match') return {label: 'Not a Match', css: 'not-match'};
+  if (!hasSuppliedValue(status) || /not present|invalid/i.test(String(status))) return {label: 'Missing', css: 'missing'};
+  return {label: String(status), css: 'review'};
+}
+function scoreProgress(scoreValue) {
+  if (!hasSuppliedValue(scoreValue) || !Number.isFinite(Number(scoreValue))) return '<div class="score-track unavailable" aria-label="Score not available"></div>';
+  const sourceScore = Number(scoreValue);
+  const displayWidth = Math.max(0, Math.min(100, sourceScore));
+  return `<div class="score-track" role="img" aria-label="Existing score ${escapeHtml(scoreValue)}"><span style="width:${displayWidth}%"></span></div>`;
+}
+function comparisonCard(title, userValue, kycValue, status, scoreValue, algorithmNote, comparisonId) {
+  const badge = comparisonBadge(status);
+  return `<article class="comparison-card" data-comparison="${escapeHtml(comparisonId)}"><div class="comparison-card-heading"><h4>${escapeHtml(title)}</h4><span class="comparison-status status-${badge.css}">${escapeHtml(badge.label)}</span></div><div class="comparison-values"><div><span class="comparison-label">User Value</span><p>${escapeHtml(userDetailValue(userValue))}</p></div><div><span class="comparison-label">KYC Value</span><p>${escapeHtml(userDetailValue(kycValue))}</p></div></div><div class="comparison-score-line"><span>Existing score</span><b>${escapeHtml(hasSuppliedValue(scoreValue) ? scoreValue : 'Not available')}</b></div>${scoreProgress(scoreValue)}<p class="algorithm-note">${escapeHtml(algorithmNote)}</p></article>`;
+}
+function kycDocumentCard(r) {
+  const docType = hasSuppliedValue(r.kyc_doc) ? String(r.kyc_doc).trim().replace(/\.0+$/, '').toUpperCase() : '';
+  const sourceLink = hasSuppliedValue(r.kyc_doc_link) ? String(r.kyc_doc_link) : '';
+  const safeLink = safeHttpUrl(sourceLink);
+  const typeSupported = ['CERSAI_AADHAAR', '36', '37', '98', 'DIGILOCKER_EAADHAAR', 'AADHAAR_OTP', 'DIGILOCKER_AADHAAR_XML'].includes(docType);
+  const conversionType = ['AADHAAR_OTP', 'DIGILOCKER_AADHAAR_XML'].includes(docType);
+  const storedStatus = hasSuppliedValue(r.kyc_document_status) ? String(r.kyc_document_status) : '';
+  const conversionReady = conversionType && ['Not requested', 'Ready for local conversion', 'Available'].includes(storedStatus);
+  const canView = typeSupported && (conversionType ? conversionReady : Boolean(safeLink));
+  const suppliedLink = safeLink && !conversionType
+    ? `<a class="kyc-document-source-link" href="${escapeHtml(safeLink)}" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer" aria-label="Open supplied KYC document source link">Open source link</a>`
+    : `<span class="kyc-document-missing">${sourceLink ? 'Invalid HTTP(S) document link' : 'Not supplied'}</span>`;
+  const status = storedStatus && !['Not requested','Loading'].includes(storedStatus) ? storedStatus : conversionReady ? 'Ready for local conversion' : safeLink && typeSupported ? 'Available' : 'Not available';
+  const controls = canView
+    ? `<div class="kyc-document-actions"><button type="button" class="document-link" data-kyc-document-action="view" aria-controls="kycDocumentViewer">View KYC document</button><a class="document-link" data-kyc-document-open href="/api/records/${selectedIndex}/kyc/document" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer">Open in new tab</a></div>`
+    : `<p class="kyc-document-missing">${!typeSupported ? 'KYC document type is not available for viewing.' : conversionType ? 'Conversion metadata unavailable.' : sourceLink ? 'KYC document link is invalid.' : 'KYC document link not supplied.'}</p>`;
+  return `<section class="kyc-document-card" aria-label="KYC document" data-kyc-source="kyc_doc_link">
+    <div class="kyc-document-heading"><h4>KYC Document</h4><span class="kyc-document-status" id="kycDocumentStatus">${escapeHtml(status)}</span></div>
+    <dl class="kyc-document-fields"><div class="kyc-source-card"><dt>KYC Document Type</dt><dd data-kyc-source="kyc_doc">${escapeHtml(userDetailValue(r.kyc_doc))}</dd><small class="source-label">Source: kyc_doc</small></div>
+      <div class="kyc-source-card"><dt>KYC Document Link</dt><dd>${suppliedLink}</dd><small class="source-label">Source: kyc_doc_link</small></div></dl>
+    ${controls}<p class="document-page-note">KYC document viewer starts at page 1. Scroll inside the viewer to review the full PDF or image.</p>
+    <div class="kyc-document-viewer-shell" id="kycDocumentViewer" aria-live="polite" aria-label="Selected KYC source document preview"><p class="kyc-document-viewer-state" id="kycDocumentViewerState">${escapeHtml(hasSuppliedValue(r.kyc_document_error) ? r.kyc_document_error : 'Choose View KYC document to load this selected record only.')}</p></div>
+  </section>`;
+}
+function renderKycDetails() {
+  const r = selectedRecord();
+  const comparisonStatuses = [r.name_match_status, r.dob_match_status, r.gender_match,
+    r.permanent_address_match_status, r.current_address_match_status];
+  const passedCount = comparisonStatuses.filter(value => hasSuppliedValue(value) && String(value) === 'Match').length;
+  const sourceContent = `<section class="kyc-subsection kyc-identity-section">${sectionHeading('KYC IDENTITY')}<dl class="kyc-identity-grid">${kycSourceCard('KYC Type', r.kyc_status_type, 'kyc_status_type')}${kycSourceCard('KYC Mode', r.kyc_mode, 'kyc_mode')}${kycSourceCard('KYC Status', r.kyc_status, 'kyc_status')}</dl></section>
+    <section class="kyc-subsection kyc-personal-section">${sectionHeading('PERSONAL DETAILS')}<dl class="kyc-personal-grid">${kycSourceCard('KYC Name', r.kyc_name, 'kyc_name')}${kycSourceCard('KYC Father Name', r.kyc_father_name, 'kyc_father_name')}${kycSourceCard('KYC Date of Birth', r.kyc_dob, 'kyc_dob')}${kycSourceCard('KYC Gender', r.kyc_gender, 'kyc_gender')}</dl></section>`;
+  const addressContent = `<section class="kyc-addresses-panel" aria-label="KYC addresses">${sectionHeading('KYC ADDRESSES', 'Full source values')}
+    <dl class="kyc-address-grid">${kycSourceCard('Permanent Address', r.kyc_permanent_address, 'kyc_permanent_address', true)}${kycSourceCard('Current Address', r.kyc_current_address, 'kyc_current_address', true)}</dl></section>`;
+  const scores = [
+    ['Name', r.name_match_score, 'name_match_score'], ['DOB', r.dob_match_score, 'dob_match_score'],
+    ['Gender', r.gender_match_score, 'gender_match_score'], ['Perm. Addr', r.permanent_address_match_score, 'permanent_address_match_score'],
+    ['Curr. Addr', r.current_address_match_score, 'current_address_match_score']
+  ].map(([label, score, key]) => `<div class="score-card" data-score-source="${key}"><span>${label}</span><b>${escapeHtml(hasSuppliedValue(score) ? score : '—')}</b>${scoreProgress(score)}</div>`).join('');
+  const comparisons = [
+    comparisonCard('Name Match', r.user_name, r.kyc_name, r.name_match_status, r.name_match_score,
+      'Name comparison removes leading honorifics and uses token/string similarity; the existing match threshold is 60.', 'name'),
+    comparisonCard('Date of Birth Match', r.user_dob, r.kyc_dob, r.dob_match_status, r.dob_match_score,
+      'Dates are parsed from supported formats and compared for exact calendar-date equality.', 'dob'),
+    comparisonCard('Gender Match', r.user_gender_normalized || r.user_gender, r.kyc_gender_normalized || r.kyc_gender, r.gender_match, r.gender_match_score,
+      'Known gender aliases are normalized before comparison; normalized values are shown when supplied.', 'gender'),
+    comparisonCard('Permanent Address Match', r.user_perm_address, r.kyc_permanent_address, r.permanent_address_match_status, r.permanent_address_match_score,
+      'Address abbreviations are expanded; similarity threshold is 60 and differing six-digit PINs cap the score at 35.', 'permanent-address'),
+    comparisonCard('Current Address Match', r.user_curr_address, r.kyc_current_address, r.current_address_match_status, r.current_address_match_score,
+      'Address abbreviations are expanded; similarity threshold is 60 and differing six-digit PINs cap the score at 35.', 'current-address')
+  ].join('');
+  return `<div class="record-detail-view kyc-details-page">${selectedUserHero(r, 'kyc')}
+    <div class="kyc-details-layout"><section class="kyc-source-panel" aria-label="KYC source data"><h3 class="panel-title">KYC SOURCE DATA</h3>
+      <div class="kyc-selfie-grid">${kycSelfieCard('User Selfie', r.user_selfie, 'user_selfie', 'Selected user selfie', 'No user selfie supplied')}${kycSelfieCard('KYC Selfie', r.kyc_selfie_link, 'kyc_selfie_link', 'Selected KYC selfie', 'No KYC selfie supplied', r.kyc_selfie_doc)}</div>
+      <label class="face-match-check" for="kyc-face-match-validated"><input id="kyc-face-match-validated" type="checkbox" data-review-field="kyc_face_match_validated" ${r.kyc_face_match_validated === true || String(r.kyc_face_match_validated).toLowerCase() === 'true' ? 'checked' : ''}><span>Face match validated</span></label>
+      ${kycDocumentCard(r)}${sourceContent}
+    </section><section class="kyc-comparison-panel" aria-label="Comparison results"><h3 class="panel-title">COMPARISON RESULTS</h3>
+      <div class="overall-score-strip"><div><span>OVERALL MATCH SCORE</span><b>${passedCount} <small>/ 5 checks passed</small></b></div><span class="overall-score-status ${passedCount === 5 ? 'outcome-pass' : 'outcome-review'}">${passedCount === 5 ? 'ALL MATCHES' : 'REVIEW'}</span></div>
+      <div class="score-cards" aria-label="Existing match scores">${scores}</div><div class="comparison-list">${comparisons}</div>
+    </section></div>
+    ${addressContent}
+    ${reviewSection('kyc-details', 'kyc_details_validated', 'kyc_details_comments')}
+  </div>`;
+}
+function formatDisplayDate(value) { const text = String(value || '').trim(); const match = /^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})$/.exec(text); if (match) return `${match[1].padStart(2,'0')}/${match[2].padStart(2,'0')}/${match[3]}`; const iso = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(text); return iso ? `${iso[3].padStart(2,'0')}/${iso[2].padStart(2,'0')}/${iso[1]}` : text; }
+function sanctionReferenceFinding(record) {
+  const status = String(record.sanction_validation_status || '');
+  if (!['success','partial'].includes(status)) return 'Not evaluated';
+  if (record.sanction_letter_reference_number === 'Not provided in source') return 'Reference number label is present but blank; not provided in source';
+  if (record.sanction_letter_reference_number) return 'Reference number supplied in source';
+  if (String(record.sanction_validation_error || '').includes('Reference number label was not found')) return 'Reference number label was not found in scanned source';
+  return 'Reference finding unavailable';
+}
+function fieldCard(label, value, key) { return `<div class="form-field" data-field-key="${escapeHtml(key || '')}"><dt>${escapeHtml(label)}</dt><dd>${escapeHtml(value || 'Not available')}</dd></div>`; }
+function checkCard(label, value, evidence, key) { return `<div class="form-field" data-field-key="${escapeHtml(key || '')}"><dt>${escapeHtml(label)}</dt><dd>${escapeHtml(value || 'Not available')}</dd><small data-evidence-key="${escapeHtml(key || '')}">${escapeHtml(evidence || 'Not available')}</small></div>`; }
+function renderForm() {
+  const r = selectedRecord();
+  const isMitc = currentFormType === 'MITC';
+  const isSanction = currentFormType === 'Sanction Letter';
+  const isApplication = currentFormType === 'Application Form';
+  const isKfs = currentFormType === 'KFS';
+  const isGtc = currentFormType === 'GTC';
+  const sourceKey = isSanction ? 'sanction_letter_link' : isApplication ? 'application_form_link' : isKfs ? 'kfs_link' : isGtc ? 'gtc_link' : 'mitc_form_link';
+  const sourceUrl = r[sourceKey] || '';
+  const safeSourceUrl = safeHttpUrl(sourceUrl);
+  const sourceLabel = safeSourceUrl ? (() => { try { const parsed = new URL(safeSourceUrl); const tail = parsed.pathname.split('/').filter(Boolean).slice(-1)[0] || ''; return `${parsed.hostname}${tail ? `/…/${tail.slice(-22)}` : ''}`; } catch (_) { return 'Document'; } })() : '';
+  const source = safeSourceUrl ? `<a class="source-link-compact" href="${escapeHtml(safeSourceUrl)}" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer" aria-label="Open source document">${escapeHtml(sourceLabel)}</a>` : `<span class="muted">${sourceUrl ? 'Invalid source URL' : `No ${sourceKey} supplied`}</span>`;
+  const statusKey = isMitc ? 'lp_mitc_validation_status' : isSanction ? 'sanction_validation_status' : isApplication ? 'application_validation_status' : isKfs ? 'kfs_validation_status' : isGtc ? 'gtc_status' : 'mitc_extraction_status';
+  const errorKey = isMitc ? 'lp_mitc_validation_error' : isSanction ? 'sanction_validation_error' : isApplication ? 'application_validation_error' : isKfs ? 'kfs_validation_error' : isGtc ? 'gtc_validation_error' : 'mitc_extraction_error';
+  const status = isMitc && currentMitcProfile !== 'LP' ? `${mitcProfileStates[currentMitcProfile]}` : (r[statusKey] || 'Not requested');
+  const error = !(isMitc && currentMitcProfile !== 'LP') && r[errorKey] ? `<div class="form-error">${escapeHtml(r[errorKey])}</div>` : '';
+  let detailContent = '';
+  if (isMitc) {
+    if (currentMitcProfile !== 'LP') {
+      detailContent = `<div class="placeholder profile-not-implemented" data-profile-state="not-implemented"><h3>${escapeHtml(currentMitcProfile)} MITC profile not implemented yet</h3><p>This iteration implements LP only. The existing LP result remains unchanged and is not shown as an ${escapeHtml(currentMitcProfile)} result.</p></div>`;
+    } else {
+      const borrowerStatus = r.lp_mitc_borrower_name_match_status || 'Not evaluated';
+      const borrowerScore = r.lp_mitc_borrower_name_match_score;
+      const signatureState = hasSuppliedValue(r.lp_mitc_digital_signature_check) ? r.lp_mitc_digital_signature_check : 'Not available';
+      const logoState = hasSuppliedValue(r.lp_mitc_letterhead_logo_check) ? r.lp_mitc_letterhead_logo_check : 'Not available';
+      const integrityCard = (label, value, key, note = '') => `<div class="integrity-item" data-field-key="${key}"${key === 'page-check' ? ' id="pdfPageCheckStatus"' : ''}><span>${label}</span><b>${escapeHtml(userDetailValue(value))}</b>${note ? `<small>${escapeHtml(note)}</small>` : ''}</div>`;
+      detailContent = `<div class="mitc-extraction-stack">
+        <section class="form-card mitc-fields-card"><div class="extraction-card-heading"><div><span class="card-kicker">EXTRACTED FIELDS</span><h4>LP MITC fields</h4></div><span class="source-type-badge">LP profile</span></div><dl class="mitc-field-grid">${fieldCard('Date',r.lp_mitc_date,'lp_mitc_date')}${fieldCard('Customer identification number',r.lp_mitc_customer_identification_number,'lp_mitc_customer_identification_number')}${fieldCard('Name of the Borrower / Borrower Name',r.lp_mitc_borrower_name,'lp_mitc_borrower_name')}</dl></section>
+        <section class="form-card borrower-comparison-card"><div class="extraction-card-heading"><div><span class="card-kicker">NAME CHECK</span><h4>Borrower name vs KYC</h4></div><span class="comparison-status status-${comparisonBadge(borrowerStatus).css}">${escapeHtml(comparisonBadge(borrowerStatus).label)}</span></div><div class="borrower-pair"><div><span>MITC borrower</span><b>${escapeHtml(userDetailValue(r.lp_mitc_borrower_name))}</b></div><div><span>KYC name</span><b>${escapeHtml(userDetailValue(r.kyc_name))}</b></div></div><div class="comparison-score-line"><span>Existing name score</span><b>${escapeHtml(hasSuppliedValue(borrowerScore) ? borrowerScore : 'Not available')}</b></div>${scoreProgress(borrowerScore)}<p class="algorithm-note">Honorific prefixes are removed and token/string similarity is used; the existing match threshold is 60. Existing score shown as stored.</p></section>
+        <section class="form-card integrity-card"><div class="extraction-card-heading"><div><span class="card-kicker">DOCUMENT INTEGRITY</span><h4>Source checks</h4></div></div><div class="integrity-grid" aria-label="Page check, signature page, digital signature check, and letterhead check (Logo)">${integrityCard('Page check','Pending PDF load','page-check','Page count is reported only after the source PDF is parsed.')}${integrityCard('Signature page',hasSuppliedValue(r.lp_mitc_digital_signature_page) ? `Page ${r.lp_mitc_digital_signature_page}` : 'Not available','lp_mitc_digital_signature_page')}${integrityCard('Digital signature check',signatureState,'lp_mitc_digital_signature_check',signatureState === 'Detected' ? 'Structural presence only; not cryptographically verified.' : '')}${integrityCard('Letterhead check (Logo)',logoState,'lp_mitc_letterhead_logo_check','Text / structural evidence only; not visual logo recognition.')}${integrityCard('Validation status',r.lp_mitc_validation_status || 'Not evaluated','lp_mitc_validation_status')}${integrityCard('Validation error',r.lp_mitc_validation_error || 'Not available','lp_mitc_validation_error')}</div></section>
+      </div>`;
+    }
+  } else if (isSanction) {
+
+    const referenceFinding = sanctionReferenceFinding(r);
+    detailContent = `<div class="form-card-grid"><section class="form-card"><h4>Sanction Letter Details</h4><dl>${fieldCard('Sanction Letter Date',formatDisplayDate(r.sanction_letter_date),'sanction_letter_date')}${fieldCard('Borrower Name',r.sanction_borrower_name,'sanction_borrower_name')}${fieldCard('Reference finding',referenceFinding,'sanction_reference_finding')}${fieldCard('Borrower name match status',r.sanction_borrower_name_match_status || 'Not evaluated','sanction_borrower_name_match_status')}${fieldCard('Borrower name match score',r.sanction_borrower_name_match_score,'sanction_borrower_name_match_score')}${fieldCard('Borrower details match',r.sanction_borrower_details_match,'sanction_borrower_details_match')}</dl></section><section class="form-card"><h4>Validation findings</h4><dl>${checkCard('Letterhead check (Logo)',r.sanction_letterhead_logo_check,r.sanction_letterhead_logo_evidence,'sanction_letterhead_logo_check')}${checkCard('Digital signature check',r.sanction_digital_signature_check,r.sanction_digital_signature_evidence,'sanction_digital_signature_check')}${checkCard('Annexure terms check',r.sanction_annexure_terms_check,r.sanction_annexure_terms_evidence,'sanction_annexure_terms_check')}</dl></section><section class="form-card"><h4>Validation status and errors</h4><dl>${fieldCard('Validation status',r.sanction_validation_status || 'Not evaluated','sanction_validation_status')}${fieldCard('Validation error',r.sanction_validation_error,'sanction_validation_error')}</dl></section></div>`;
+  } else if (isApplication) {
+    const score = key => r[key] !== '' && r[key] != null ? ` · ${r[key]}` : '';
+    const applicationFieldCards = [
+      ['Borrower name','application_borrower_name'],['Father name','application_father_name'],['Mother name','application_mother_name'],
+      ['Nationality','application_nationality'],['Date of birth','application_dob'],['Gender','application_gender'],
+      ['Mobile number','application_mobile_number'],['Email','application_email'],['PAN','application_pan'],['Other','application_other'],
+      ['Communication address','application_communication_address'],['Communication city','application_communication_city'],
+      ['Communication pincode','application_communication_pincode'],['Communication state','application_communication_state'],
+      ['Communication country','application_communication_country'],['Current address','application_current_address'],
+      ['Current city','application_current_city'],['Current pincode','application_current_pincode'],['Current state','application_current_state'],
+      ['Current country','application_current_country'],['Occupation type','application_occupation_type']
+    ].map(([label,key]) => fieldCard(label,r[key],key)).join('');
+    detailContent = `<div class="form-card-grid"><section class="form-card"><h4>Application Form fields</h4><dl>${applicationFieldCards}</dl></section><section class="form-card"><h4>Comparison against KYC</h4><dl>${fieldCard('KYC name',r.kyc_name,'kyc_name')}${fieldCard('Name match status',r.application_name_match_status || 'Not evaluated','application_name_match_status')}${fieldCard('Name match score',r.application_name_match_score,'application_name_match_score')}${fieldCard('KYC DOB',r.kyc_dob,'kyc_dob')}${fieldCard('DOB match status',r.application_dob_match_status || 'Not evaluated','application_dob_match_status')}${fieldCard('DOB match score',r.application_dob_match_score,'application_dob_match_score')}${fieldCard('KYC gender',r.kyc_gender,'kyc_gender')}${fieldCard('Gender match status',r.application_gender_match || 'Not evaluated','application_gender_match')}${fieldCard('Gender match score',r.application_gender_match_score,'application_gender_match_score')}${fieldCard('Borrower details match',r.application_borrower_details_match || 'Not evaluated','application_borrower_details_match')}</dl></section><section class="form-card"><h4>Evidence / limitations and validation</h4><dl>${fieldCard('Letterhead check (Logo)',r.application_letterhead_logo_check || 'Not available','application_letterhead_logo_check')}${fieldCard('Letterhead evidence',r.application_letterhead_logo_evidence,'application_letterhead_logo_evidence')}${fieldCard('Photo match',r.application_photo_match || 'Not implemented','application_photo_match')}${fieldCard('Validation status',r.application_validation_status || 'Not evaluated','application_validation_status')}${fieldCard('Validation error',r.application_validation_error,'application_validation_error')}</dl></section></div>`;
+  } else if (isKfs) {
+    // KFS fields: Borrower identification number, Borrower name, Name match, Borrower address, Address match, Borrower Details match, Letterhead check (Logo), Digital signature check, Penal Charges check (page 4).
+    // See static/kfs-form.js for all KFS fields, comparisons, and checks.
+    detailContent = renderKfsDetailContent(r);
+  } else {
+    const linkState = safeSourceUrl ? 'Valid HTTP(S) link supplied; fetch state shown separately.' : sourceUrl ? 'Invalid HTTP(S) URL.' : 'Not supplied';
+    const fetchState = hasSuppliedValue(r.gtc_status) ? r.gtc_status : 'Not evaluated';
+    detailContent = `<div class="form-card-grid"><section class="form-card"><h4>GTC availability and link status</h4><dl>${fieldCard('Source link',linkState,'gtc_link')}${fieldCard('Fetch / validation status',fetchState,'gtc_status')}${fieldCard('Validation error',r.gtc_validation_error,'gtc_validation_error')}</dl></section></div>`;
+  }
+  const page = isMitc ? (currentMitcProfile === 'LP' ? 1 : 23) : isKfs ? 4 : 1;
+  const documentTitle = isMitc ? 'MITC Document' : isSanction ? 'Sanction Letter Document' : isApplication ? 'Application Form Document' : isKfs ? 'KFS Document' : 'GTC Document';
+  const pageNote = isMitc && currentMitcProfile !== 'LP' ? `${currentMitcProfile} document viewing is not implemented yet.` : isMitc ? 'LP MITC fields are on page 1; LP parsing and viewer target page 1 / early pages only (never page 23).' : isKfs ? 'LP KFS borrower details use page 3 only; Penal Charges check uses page 4 only. Viewer opens at page 4 when available and at page 1 for shorter PDFs.' : 'Opening at page 1.';
+  const sourcePanel = `<section class="document-panel" aria-labelledby="sourceDocumentTitle"><div class="document-panel-heading"><div><span class="eyebrow">SOURCE DOCUMENT</span><h4 id="sourceDocumentTitle">${documentTitle}</h4></div><div class="document-actions" id="documentActions"></div></div><div class="pdf-workspace" id="documentViewer" aria-label="Source PDF viewer"><div class="pdf-toolbar" role="toolbar" aria-label="PDF controls"><button type="button" data-pdf-action="previous" aria-label="Previous page" disabled>‹</button><span class="pdf-page-label"><span id="pdfPageCurrent">—</span><span aria-hidden="true">/</span><span id="pdfPageTotal">—</span></span><button type="button" data-pdf-action="next" aria-label="Next page" disabled>›</button><span class="pdf-toolbar-spacer"></span><button type="button" data-pdf-action="zoom-out" aria-label="Zoom out" disabled>−</button><button type="button" data-pdf-action="zoom-in" aria-label="Zoom in" disabled>+</button><a class="pdf-open-new" id="pdfOpenNewTab" href="#" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer" aria-label="Open source PDF in a new tab" hidden>Open in new tab</a></div><div class="pdf-workspace-body"><nav class="pdf-thumbnails" id="pdfThumbnails" aria-label="PDF page thumbnails"></nav><div class="pdf-stage" id="pdfStage" tabindex="0" aria-label="PDF pages"><div class="document-empty" id="documentViewerState">${isMitc && currentMitcProfile !== 'LP' ? mitcProfileStates[currentMitcProfile] : sourceUrl ? 'Choose Extract / Load to open this selected document.' : `No ${sourceKey} supplied for this user.`}</div></div></div></div>${isGtc ? '' : `<p class="document-page-note" id="documentPageNote">${pageNote} Viewer pages remain scrollable.</p>`}</section>`;
+  const canLoad = isMitc && currentMitcProfile !== 'LP' ? true : Boolean(sourceUrl) && !isGtc;
+  const buttonLabel = isSanction ? 'Sanction Letter' : isApplication ? 'Application Form' : isKfs ? 'KFS' : 'MITC';
+  return `<div class="form-panel"><div class="form-toolbar"><div><span class="eyebrow">FORM EXTRACTION</span><h3>${escapeHtml(currentFormType)}</h3></div><div class="form-note"><b>LP only</b><span>FPL and MPL extraction are not implemented. LP results stay separate from other profiles.</span></div></div>
+    <div class="form-controls"><label for="formType">Form type</label><select id="formType">${['MITC','KFS','Sanction Letter','Application Form','GTC'].map(type => `<option ${currentFormType===type?'selected':''}>${type}</option>`).join('')}</select>${isMitc ? `<label for="mitcProfile">MITC profile</label><select id="mitcProfile" aria-label="MITC profile">${['LP','FPL','MPL'].map(profile => `<option value="${profile}" ${currentMitcProfile===profile?'selected':''}>${profile}</option>`).join('')}</select>` : ''}<button id="extractDocument" class="extract-button" ${selectedIndex < 0 || !canLoad ? 'disabled' : ''}>${isMitc && currentMitcProfile !== 'LP' ? `${currentMitcProfile} profile status` : isGtc ? 'GTC link status' : `Extract / Load ${buttonLabel}`}</button></div>
+    ${`<div class="source-row"><strong>Source (${sourceKey})</strong><span>${source}</span>${`<span id="documentStatus" class="status-badge ${isKfs ? kfsSourceStatusTone(status) : ['success','Available','Pass'].includes(status) ? 'success' : ['failed','Failed','Not available'].includes(status) ? 'failed' : ''}">${escapeHtml(status)}</span>`}</div>`}<div id="documentError">${error}</div>
+    <div class="form-split">${isApplication ? `<div class="application-form-cards">${detailContent}</div>` : detailContent}${sourcePanel}</div>
+    ${reviewSection('form', 'form_validated', 'form_comments')}
+  </div>`;
+}
+
+function updateFormFromRecord() {
+  const r = selectedRecord();
+  document.querySelectorAll('[data-field-key]').forEach(element => {
+    const key = element.dataset.fieldKey; const value = r[key]; const target = element.querySelector('dd');
+    const integrityValue = element.matches('.integrity-item') ? element.querySelector('b') : null;
+    if (integrityValue) {
+      const key = element.dataset.fieldKey;
+      const value = key === 'page-check' ? integrityValue.textContent : r[key];
+      if (key !== 'page-check') integrityValue.textContent = hasSuppliedValue(value) ? String(value) : 'Not available';
+    }
+    if (target) {
+      let display = hasSuppliedValue(value) ? value : 'Not available';
+      if (currentFormType === 'Sanction Letter' && key === 'sanction_reference_finding') display = sanctionReferenceFinding(r);
+      if (currentFormType === 'GTC' && key === 'gtc_status') display = hasSuppliedValue(value) ? String(value) : 'Not evaluated';
+      if (currentFormType === 'GTC' && key === 'gtc_link') display = safeHttpUrl(r.gtc_link) ? 'Valid HTTP(S) link supplied; fetch state shown separately.' : hasSuppliedValue(r.gtc_link) ? 'Invalid HTTP(S) URL.' : 'Not supplied';
+      if (currentFormType === 'KFS' && key === 'kfs_borrower_details_match') display = hasSuppliedValue(value) ? String(value) : 'Not evaluated';
+      if (currentFormType === 'KFS' && ['kfs_letterhead_logo_check','kfs_digital_signature_check'].includes(key)) display = hasSuppliedValue(value) ? String(value) : 'Not available';
+      const scoreKey = {application_name_match_status:'application_name_match_score', application_dob_match_status:'application_dob_match_score', application_gender_match:'application_gender_match_score', mitc_borrower_name_match_status:'mitc_borrower_name_match_score', sanction_borrower_name_match_status:'sanction_borrower_name_match_score', kfs_borrower_name_match_status:'kfs_borrower_name_match_score', kfs_borrower_address_match_status:'kfs_borrower_address_match_score'}[key];
+      if (scoreKey && r[scoreKey] != null && r[scoreKey] !== '') display += ` · ${r[scoreKey]}`;
+      target.textContent = display;
+    }
+  });
+  document.querySelectorAll('[data-evidence-key]').forEach(element => { const value = r[element.dataset.evidenceKey.replace(/_check$/, '_evidence')]; element.textContent = hasSuppliedValue(value) ? String(value) : 'Not available'; });
+  if (currentFormType === 'KFS') updateKfsFormFromRecord(r);
+  const statusKey = currentFormType === 'MITC' ? 'lp_mitc_validation_status' : currentFormType === 'Sanction Letter' ? 'sanction_validation_status' : currentFormType === 'Application Form' ? 'application_validation_status' : currentFormType === 'KFS' ? 'kfs_validation_status' : currentFormType === 'GTC' ? 'gtc_status' : 'mitc_extraction_status';
+  const errorKey = currentFormType === 'MITC' ? 'lp_mitc_validation_error' : currentFormType === 'Sanction Letter' ? 'sanction_validation_error' : currentFormType === 'Application Form' ? 'application_validation_error' : currentFormType === 'KFS' ? 'kfs_validation_error' : currentFormType === 'GTC' ? 'gtc_validation_error' : 'mitc_extraction_error';
+  const status = currentFormType === 'MITC' && currentMitcProfile !== 'LP' ? `${mitcProfileStates[currentMitcProfile]}` : (r[statusKey] || 'Not requested');
+  const badge = document.getElementById('documentStatus');
+  if (badge) { badge.textContent = status; badge.className = `status-badge ${currentFormType === 'KFS' ? kfsSourceStatusTone(status) : ['success','Available','Pass'].includes(status) ? 'success' : ['failed','Failed'].includes(status) ? 'failed' : ''}`; }
+  const error = document.getElementById('documentError');
+  if (error) error.innerHTML = !(currentFormType === 'MITC' && currentMitcProfile !== 'LP') && r[errorKey] ? `<div class="form-error">${escapeHtml(r[errorKey])}</div>` : '';
+}
+
+let statusPollTimer = null;
+function renderMitcSummary(summary) {
+  if (!summary) return;
+  mitcSummary = summary;
+  const label = document.getElementById('mitcProgressLabel');
+  const percent = document.getElementById('mitcProgressPercent');
+  const bar = document.getElementById('mitcProgressBar');
+  const card = document.getElementById('mitcProgressCard');
+  const value = Number(summary.progress_percent || 0);
+  const safePercent = Math.max(0, Math.min(100, value));
+  if (label) label.textContent = `MITC extracted ${summary.extracted || 0} / ${summary.eligible || 0} eligible`;
+  if (percent) percent.textContent = `${safePercent}%`;
+  if (bar) bar.style.width = `${safePercent}%`;
+  if (card) {
+    const progress = card.querySelector('[role=progressbar]');
+    if (progress) progress.setAttribute('aria-valuenow', String(safePercent));
+    Object.entries(summary).forEach(([key, metric]) => { const target = card.querySelector(`[data-metric="${key}"]`); if (target) target.textContent = String(metric ?? 0); });
+  }
+}
+function renderSanctionSummary(summary) {
+  if (!summary) return;
+  const set = (id, value) => { const target = document.getElementById(id); if (target) target.textContent = String(value ?? 0); };
+  set('sanctionEligible', summary.eligible); set('sanctionCompleted', summary.completed);
+  set('sanctionPending', Number(summary.queued || 0) + Number(summary.extracting || 0)); set('sanctionFailed', summary.failed);
+}
+async function pollMitcStatus() {
+  try {
+    const response = await fetch('/api/records/status/summary' + `?profile=${encodeURIComponent(currentMitcProfile)}`, {headers: {'Accept': 'application/json'}});
+    if (!response.ok) throw new Error(`status HTTP ${response.status}`);
+    const payload = await response.json(); renderMitcSummary(payload.summary); renderSanctionSummary(payload.sanction_summary);
+    let selectedChanged = false;
+    (payload.rows || []).forEach((row) => {
+      const index = Number(row.index); const state = String(row.extraction_status || '');
+      const anyChanged = rowStatuses[index] !== state; rowStatuses[index] = state;
+      if (!anyChanged) return;
+      const element = document.querySelector(`.user-row[data-index="${index}"]`);
+      if (element) { element.dataset.status = state; element.title = `MITC: ${state}`; element.classList.toggle('mitc-pending', state === 'queued' || state === 'extracting'); }
+      if (index === selectedIndex) selectedChanged = true;
+    });
+    (payload.sanction_rows || []).forEach((row) => {
+      const index = Number(row.index); const state = String(row.validation_status || '');
+      if (sanctionRowStatuses[index] === state) return;
+      sanctionRowStatuses[index] = state;
+      if (index === selectedIndex) selectedChanged = true;
+    });
+    (payload.document_rows || []).forEach((row, index) => { const application = String(row[0] || ''); const kfs = String(row[1] || ''); const gtc = String(row[2] || ''); if (applicationRowStatuses[index] !== application || kfsRowStatuses[index] !== kfs || gtcRowStatuses[index] !== gtc) { applicationRowStatuses[index] = application; kfsRowStatuses[index] = kfs; gtcRowStatuses[index] = gtc; if (index === selectedIndex) selectedChanged = true; } });
+    if (selectedChanged && selectedIndex >= 0) {
+      const changedSelection = selectedIndex;
+      try { await fetchRecord(changedSelection, true); const activeTab = document.querySelector('.tab.active')?.dataset.tab; if (changedSelection === selectedIndex && ['form', 'kyc-details', 'user-details', 'all-documents', 'summary'].includes(activeTab)) renderTab(activeTab); } catch (_) {}
+    }
+    if (payload.pending) statusPollTimer = window.setTimeout(pollMitcStatus, 700); else statusPollTimer = null;
+  } catch (_) { statusPollTimer = window.setTimeout(pollMitcStatus, 1500); }
+}
+function ensureStatusPolling() { if (!statusPollTimer && userRows.length) pollMitcStatus(); }
+function renderAllDocuments() {
+  const record = selectedRecord();
+  const libraryMarkup = window.renderInfoRowAssociatedDocuments(selectedAssociatedDocuments, selectedIndex);
+  return `<div class="all-documents-page">
+    <div class="all-documents-heading"><div><span class="eyebrow">SELECTED USER</span><h3>Documents</h3><p>Select two documents to keep a side-by-side comparison open. The active document is highlighted.</p></div><span class="match-badge">${escapeHtml(record.user_id || userIds[selectedIndex] || 'No user selected')}${hasSuppliedValue(record.user_name) ? ` · ${escapeHtml(record.user_name)}` : ''}</span></div>
+    ${libraryMarkup}</div>`;
+}
+
+function renderAllDocumentsTab() {
+  const content = document.getElementById('tabContent');
+  const requestedIndex = selectedIndex;
+  content.classList.remove('form-layout','user-details-view','kyc-details-view','summary-view');
+  content.classList.add('all-documents-view');
+  if (requestedIndex < 0) { content.innerHTML = '<div class="placeholder"><h3>No user selected</h3></div>'; return; }
+  content.innerHTML = '<div class="placeholder loading-state"><h3>Loading selected record…</h3></div>';
+  const requestedUserId = userIds[requestedIndex] || '';
+  if (associatedDocumentsUserId !== requestedUserId) {
+    Object.keys(associatedViewerBlobUrls).forEach(slot => { if (associatedViewerBlobUrls[slot]) URL.revokeObjectURL(associatedViewerBlobUrls[slot]); });
+    associatedViewerBlobUrls = {};
+    associatedViewerRequestIds = [associatedViewerRequestIds[0] + 1, associatedViewerRequestIds[1] + 1];
+    selectedAssociatedDocuments = [];
+    selectedAssociatedDocumentIds = [null, null];
+    associatedSelectionMessage = '';
+    associatedDocumentsUserId = requestedUserId;
+  }
+  fetchRecord(requestedIndex).then(async () => {
+    const response = await fetch(`/api/records/${requestedIndex}/documents`);
+    if (!response.ok) throw new Error('Associated documents could not be loaded.');
+    const payload = await response.json();
+    if (requestedIndex !== selectedIndex || document.querySelector('.tab.active')?.dataset.tab !== 'all-documents') return;
+    selectedAssociatedDocuments = Array.isArray(payload.documents) ? payload.documents : [];
+    content.innerHTML = renderAllDocuments();
+  }).catch(error => {
+    if (requestedIndex === selectedIndex) content.innerHTML = `<div class="placeholder"><h3>Record unavailable</h3><p>${escapeHtml(error.message)}</p></div>`;
+  });
+}
+
+function renderTab(tab) {
+  const content = document.getElementById('tabContent');
+  if (tab === 'user-details') {
+    const requestedIndex = selectedIndex; content.classList.remove('form-layout', 'kyc-details-view', 'summary-view', 'all-documents-view'); content.classList.add('user-details-view');
+    if (requestedIndex < 0) { content.innerHTML = '<div class=\"placeholder\"><h3>No user selected</h3></div>'; return; }
+    content.innerHTML = '<div class=\"placeholder\"><h3>Loading selected record…</h3></div>';
+    fetchRecord(requestedIndex).then(() => { if (requestedIndex === selectedIndex && document.querySelector('.tab.active')?.dataset.tab === 'user-details') content.innerHTML = renderUserDetails(); }).catch(error => { if (requestedIndex === selectedIndex) content.innerHTML = `<div class=\"placeholder\"><h3>Record unavailable</h3><p>${escapeHtml(error.message)}</p></div>`; });
+    return;
+  }
+  if (tab === 'kyc-details') {
+    const requestedIndex = selectedIndex; content.classList.remove('form-layout', 'user-details-view', 'summary-view', 'all-documents-view'); content.classList.add('kyc-details-view');
+    if (requestedIndex < 0) { content.innerHTML = '<div class=\"placeholder\"><h3>No user selected</h3></div>'; return; }
+    content.innerHTML = '<div class=\"placeholder\"><h3>Loading selected record…</h3></div>';
+    fetchRecord(requestedIndex).then(() => { if (requestedIndex === selectedIndex && document.querySelector('.tab.active')?.dataset.tab === 'kyc-details') content.innerHTML = renderKycDetails(); }).catch(error => { if (requestedIndex === selectedIndex) content.innerHTML = `<div class=\"placeholder\"><h3>Record unavailable</h3><p>${escapeHtml(error.message)}</p></div>`; });
+    return;
+  }
+  if (tab === 'form') {
+    const requestedIndex = selectedIndex; content.classList.remove('user-details-view', 'kyc-details-view', 'summary-view', 'all-documents-view'); content.classList.add('form-layout');
+    content.innerHTML = '<div class="placeholder loading-state"><h3>Loading selected record…</h3></div>';
+    fetchRecord(requestedIndex).then(() => { if (requestedIndex === selectedIndex && document.querySelector('.tab.active')?.dataset.tab === 'form') { content.innerHTML = renderForm(); bindFormControls(); } }).catch(error => { if (requestedIndex === selectedIndex) content.innerHTML = `<div class="placeholder"><h3>Record unavailable</h3><p>${escapeHtml(error.message)}</p></div>`; });
+    return;
+  }
+  if (tab === 'all-documents') { renderAllDocumentsTab(); return; }
+  content.classList.remove('form-layout', 'user-details-view', 'kyc-details-view', 'all-documents-view');
+  content.classList.add('summary-view');
+  content.innerHTML = `<div class="placeholder summary-placeholder"><div class="placeholder-icon">◎</div><h3>${labels[tab]}</h3><p>This prototype keeps the review section ready for the selected user.</p><div class="match-badge">User ${selectedIndex + 1} of ${userIds.length || 0}</div></div>`;
+}
+let kycViewerRequestId = 0;
+let kycDocumentBlobUrl = '';
+async function loadKycDocument() {
+  const requestId = ++kycViewerRequestId;
+  const state = document.getElementById('kycDocumentViewerState');
+  const shell = document.getElementById('kycDocumentViewer');
+  const status = document.getElementById('kycDocumentStatus');
+  const button = document.querySelector('[data-kyc-document-action="view"]');
+  if (!state || !shell || selectedIndex < 0) return;
+  const recordIndex = selectedIndex;
+  if (button) button.disabled = true;
+  state.textContent = 'Loading selected KYC document…';
+  state.className = 'kyc-document-viewer-state loading';
+  if (status) status.textContent = 'Loading';
+  try {
+    const response = await fetch(`/api/records/${recordIndex}/kyc/document`, {headers: {'Accept': 'application/pdf, image/jpeg, image/png, image/webp'}});
+    if (!response.ok) {
+      let message = `KYC document unavailable (HTTP ${response.status})`;
+      try { const payload = await response.json(); if (payload.error) message = payload.error; } catch (_) {}
+      throw new Error(message);
+    }
+    const contentType = String(response.headers.get('Content-Type') || '').split(';')[0].toLowerCase();
+    if (!['application/pdf', 'image/jpeg', 'image/png', 'image/webp'].includes(contentType)) throw new Error('KYC document has an unsupported content type');
+    const blob = await response.blob();
+    if (requestId !== kycViewerRequestId || recordIndex !== selectedIndex) return;
+    if (kycDocumentBlobUrl) URL.revokeObjectURL(kycDocumentBlobUrl);
+    kycDocumentBlobUrl = URL.createObjectURL(blob);
+    const preview = contentType === 'application/pdf'
+      ? `<iframe class="kyc-document-frame" title="Selected KYC document; starts at page 1" src="${escapeHtml(`${kycDocumentBlobUrl}#page=1`)}" referrerpolicy="no-referrer"></iframe>`
+      : `<img class="kyc-document-image" alt="Selected KYC document image" src="${escapeHtml(kycDocumentBlobUrl)}" referrerpolicy="no-referrer">`;
+    shell.innerHTML = preview;
+    shell.querySelector('img')?.addEventListener('error', () => { shell.textContent = 'Image could not be loaded by the browser.'; shell.classList.add('document-load-error'); if (status) status.textContent = 'Failed'; });
+    if (status) status.textContent = 'Available';
+    const record = selectedRecord(); record.kyc_document_status = 'Available'; record.kyc_document_error = '';
+  } catch (error) {
+    if (requestId !== kycViewerRequestId || recordIndex !== selectedIndex) return;
+    state.textContent = error.message || 'The KYC document could not be loaded.';
+    state.className = 'kyc-document-viewer-state error';
+    shell.replaceChildren(state);
+    if (status) status.textContent = /conversion unavailable/i.test(state.textContent) ? 'Conversion unavailable/configuration required' : 'Failed';
+    const record = selectedRecord(); record.kyc_document_status = status?.textContent || 'Failed'; record.kyc_document_error = state.textContent;
+  } finally {
+    if (requestId === kycViewerRequestId && recordIndex === selectedIndex && button) button.disabled = false;
+  }
+}
+function documentRoute() { if (selectedIndex < 0) return ''; const routes = {'MITC':'mitc/document','Sanction Letter':'sanction/document','Application Form':'application/document','KFS':'kfs/document','GTC':'gtc/document'}; return `/api/records/${selectedIndex}/${routes[currentFormType]}`; }
+function bindFormControls() {
+  if ((currentFormType === 'MITC' && currentMitcProfile === 'LP') || currentFormType === 'Sanction Letter' || currentFormType === 'Application Form' || currentFormType === 'KFS' || currentFormType === 'GTC') loadSourceDocument();
+  document.getElementById('mitcProfile')?.addEventListener('change', event => { currentMitcProfile = event.target.value; const content = document.getElementById('tabContent'); content.innerHTML = renderForm(); bindFormControls(); });
+  document.getElementById('formType')?.addEventListener('change', event => { currentFormType = event.target.value; const content = document.getElementById('tabContent'); content.innerHTML = renderForm(); bindFormControls(); });
+  const formRecordIndex = selectedIndex;
+  document.getElementById('extractDocument')?.addEventListener('click', async () => {
+    const isSanction = currentFormType === 'Sanction Letter'; const isApplication = currentFormType === 'Application Form'; const isKfs = currentFormType === 'KFS';
+    const button = document.getElementById('extractDocument'); button.disabled = true; button.textContent = 'Loading…';
+    try {
+      let response;
+      if (isSanction) response = await fetch(`/api/records/${formRecordIndex}/sanction`, {method:'POST'});
+      else if (isApplication) response = await fetch(`/api/records/${formRecordIndex}/application`, {method:'POST'});
+      else if (isKfs) response = await fetch(`/api/records/${formRecordIndex}/kfs`, {method:'POST'});
+      else response = await fetch(`/api/records/${formRecordIndex}/mitc`, {method:'POST', body: new URLSearchParams({profile: currentMitcProfile})});
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || 'Document check failed');
+      if (payload.implemented === false) { document.getElementById('documentStatus').textContent = payload.profile_state; button.disabled = false; button.textContent = `${currentMitcProfile} profile status`; return; }
+      recordCache.set(formRecordIndex, payload.record); if (formRecordIndex === selectedIndex) updateFormFromRecord(); ensureStatusPolling();
+      button.disabled = false; button.textContent = currentFormType === 'MITC' && currentMitcProfile !== 'LP' ? `${currentMitcProfile} profile status` : `Extract / Load ${isSanction ? 'Sanction Letter' : isApplication ? 'Application Form' : isKfs ? 'KFS' : 'MITC'}`;
+    } catch (error) { document.getElementById('documentError')?.insertAdjacentHTML('afterend', `<div class="form-error">${escapeHtml(error.message)}</div>`); button.disabled = false; button.textContent = currentFormType === 'MITC' && currentMitcProfile !== 'LP' ? `${currentMitcProfile} profile status` : `Extract / Load ${isSanction ? 'Sanction Letter' : isApplication ? 'Application Form' : isKfs ? 'KFS' : 'MITC'}`; }
+  });
+}
+
+function navigateVisibleUsers(direction) {
+  const visible = [...document.querySelectorAll('.user-row:not([hidden])')].map(row => Number(row.dataset.index));
+  if (!visible.length) return;
+  const current = visible.indexOf(selectedIndex);
+  const next = current < 0 ? (direction > 0 ? 0 : visible.length - 1) : Math.max(0, Math.min(visible.length - 1, current + direction));
+  selectUser(visible[next]);
+}
+document.getElementById('userList').addEventListener('keydown', e => { if (e.key === 'ArrowDown') { e.preventDefault(); navigateVisibleUsers(1); } if (e.key === 'ArrowUp') { e.preventDefault(); navigateVisibleUsers(-1); } });
+document.addEventListener('keydown', e => { if (['INPUT','BUTTON','SELECT','TEXTAREA'].includes(document.activeElement.tagName)) return; if (e.key === 'ArrowDown') navigateVisibleUsers(1); if (e.key === 'ArrowUp') navigateVisibleUsers(-1); });
+document.addEventListener('click', event => {
+  const row = event.target.closest('.user-row');
+  if (row) { event.preventDefault(); selectUser(Number(row.dataset.index)); return; }
+  const viewKycDocument = event.target.closest('[data-kyc-document-action="view"]');
+  if (viewKycDocument) loadKycDocument();
+});
+document.querySelectorAll('.tab').forEach(tab => tab.addEventListener('click', () => { document.querySelectorAll('.tab').forEach(t => {t.classList.remove('active'); t.setAttribute('aria-selected','false')}); tab.classList.add('active'); tab.setAttribute('aria-selected','true'); renderTab(tab.dataset.tab); }));
+if (userRows.length) selectUser(0);
+ensureStatusPolling();
+if (typeof window !== 'undefined') { window.kioskSelectUser = selectUser; window.kioskRenderTab = renderTab; window.kioskRenderDocuments = renderAllDocuments; }
+document.getElementById('userSearch').addEventListener('input', e => {
+  const q = e.target.value.toLowerCase();
+  document.querySelectorAll('.user-row').forEach(row => row.hidden = !(row.dataset.userId.toLowerCase().includes(q) || (row.dataset.userName || '').toLowerCase().includes(q)));
+  if (selectedListRow?.hidden) {
+    const firstVisible = document.querySelector('.user-row:not([hidden])');
+    if (firstVisible) selectUser(Number(firstVisible.dataset.index));
+  }
+});
+</script>
+</body></html>
